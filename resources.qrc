@@ -1,0 +1,7 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file>Images/Icon.jpeg</file>
+    <file>Images/Icon.ico</file>
+    <file>Images/CopyPaste.png</file>
+</qresource>
+</RCC>
