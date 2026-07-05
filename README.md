@@ -5,9 +5,10 @@ MyCalculator is a simple yet powerful cross-platform calculator application buil
 ## Features
 
 *   **Calculator**: Standard mathematical operations (`+`, `-`, `*`, `/`) with keyboard support and backspace functionality.
+*   **Programmer Calculator**: Advanced mode for developers to perform arithmetic calculations directly in Hexadecimal, Decimal, Octal, and Binary numeric bases with a dynamically adapting keypad.
 *   **Temperature Converter**: Convert instantly between Celsius, Fahrenheit, and Kelvin.
 *   **Number Base Converter**: Seamlessly convert numbers between Decimal, Binary, Octal, Hexadecimal, and ASCII Text.
-*   **Currency Converter**: Real-time currency conversion (USD to IDR) using live exchange rates via the ExchangeRate-API.
+*   **Currency Converter**: Real-time conversion across 150+ global fiat currencies utilizing live exchange rates from the ExchangeRate-API.
 *   **Smart Copy**: Easily copy any conversion result to your clipboard with a single click of a button.
 *   **Smart Auto-Swap**: Automatically prevents source and destination conversion types from matching to speed up your workflow.
 
