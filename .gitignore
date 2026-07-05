@@ -2,6 +2,7 @@
 build/
 compile_commands.json
 .clangd
+resources.qrc
 
 # for visual studio
 .vs/
