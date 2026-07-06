@@ -13,10 +13,10 @@
 #include <QScreen>
 #include <QVBoxLayout>
 
-CalculatorWindow::CalculatorWindow(QWidget *parent)
-    : QMainWindow(parent), currentMathValue(0.0), pendingMathOp(""), waitingForNewOperand(true), isUpdatingBoxes(false), prevTempFromIdx(0),
-      prevTempToIdx(1), prevNumFromIdx(0), prevNumToIdx(3), prevCurrFromIdx(0), prevCurrToIdx(1), currentProgValue(0), pendingProgOp(""),
-      waitingForNewProgOperand(true), currentProgBase(10)
+CalculatorWindow::CalculatorWindow(QWidget *parent) :
+    QMainWindow(parent), currentMathValue(0.0), pendingMathOp(""), waitingForNewOperand(true), isUpdatingBoxes(false), prevTempFromIdx(0),
+    prevTempToIdx(1), prevNumFromIdx(0), prevNumToIdx(3), prevCurrFromIdx(0), prevCurrToIdx(1), currentProgValue(0), pendingProgOp(""),
+    waitingForNewProgOperand(true), currentProgBase(10)
 {
   setupUi();
 
@@ -107,7 +107,7 @@ void CalculatorWindow::setupUi()
   mathLayout->addWidget(mathDisplay);
 
   QGridLayout *gridLayout = new QGridLayout();
-  QStringList buttons = {"7", "8", "9", "/", "4", "5", "6", "*", "1", "2", "3", "-", "0", ".", "C", "+"};
+  QStringList buttons = { "7", "8", "9", "/", "4", "5", "6", "*", "1", "2", "3", "-", "0", ".", "C", "+" };
   int pos = 0;
   for (int i = 0; i < 4; ++i)
   {
@@ -157,10 +157,10 @@ void CalculatorWindow::setupUi()
   tempInput->setValue(0);
 
   tempFrom = new QComboBox();
-  tempFrom->addItems({"Celsius", "Fahrenheit", "Kelvin"});
+  tempFrom->addItems({ "Celsius", "Fahrenheit", "Kelvin" });
 
   tempTo = new QComboBox();
-  tempTo->addItems({"Celsius", "Fahrenheit", "Kelvin"});
+  tempTo->addItems({ "Celsius", "Fahrenheit", "Kelvin" });
   tempTo->setCurrentIndex(1);
 
   tempResult = new QLabel("Result: 0.00 Fahrenheit");
@@ -198,10 +198,10 @@ void CalculatorWindow::setupUi()
   numInput = new QLineEdit();
 
   numFrom = new QComboBox();
-  numFrom->addItems({"Decimal", "Binary", "Octal", "Hexadecimal", "Text"});
+  numFrom->addItems({ "Decimal", "Binary", "Octal", "Hexadecimal", "Text" });
 
   numTo = new QComboBox();
-  numTo->addItems({"Decimal", "Binary", "Octal", "Hexadecimal", "Text"});
+  numTo->addItems({ "Decimal", "Binary", "Octal", "Hexadecimal", "Text" });
   numTo->setCurrentIndex(3);
 
   numResult = new QLabel("Result: ");
@@ -298,14 +298,14 @@ void CalculatorWindow::setupUi()
   progLayout->addWidget(progDisplay);
 
   progBaseCombo = new QComboBox();
-  progBaseCombo->addItems({"Hexadecimal", "Decimal", "Octal", "Binary"});
+  progBaseCombo->addItems({ "Hexadecimal", "Decimal", "Octal", "Binary" });
   progBaseCombo->setCurrentIndex(1); // Decimal
   connect(progBaseCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onProgBaseChanged);
   progLayout->addWidget(progBaseCombo);
 
   QGridLayout *progGrid = new QGridLayout();
-  QStringList progBtnLabels = {"A", "B", "C", "D", "E", "F", "Clr", "⌫", "7", "8", "9", "/",
-                               "4", "5", "6", "*", "1", "2", "3",   "-", "0", "",  "=", "+"};
+  QStringList progBtnLabels = { "A", "B", "C", "D", "E", "F", "Clr", "⌫", "7", "8", "9", "/",
+                                "4", "5", "6", "*", "1", "2", "3",   "-", "0", "",  "=", "+" };
 
   int pPos = 0;
   for (int i = 0; i < 6; ++i)
@@ -336,7 +336,7 @@ void CalculatorWindow::setupUi()
       {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgClear);
       }
-      else if (progBtnLabels[pPos] == "Bksp")
+      else if (progBtnLabels[pPos] == "⌫")
       {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgBackspace);
       }
