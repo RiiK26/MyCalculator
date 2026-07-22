@@ -1,10 +1,11 @@
 .cache/
 build/
+
 compile_commands.json
 .clangd
 
 # for visual studio
-.vs/
+.vscode/
 out/
 *.sln
 *.vcxproj.user
