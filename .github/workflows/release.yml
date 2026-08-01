@@ -1,0 +1,100 @@
+name: Release MyCalculator
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: MyCalculator-Linux.tar.gz
+          - os: windows-latest
+            artifact_name: MyCalculator-Windows.zip
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.2'
+          host: ${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}
+          target: 'desktop'
+          arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2019_64' || 'gcc_64' }}
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Package Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p MyCalculator-Linux
+          cp build/bin/MyCalculator MyCalculator-Linux/
+          tar -czvf MyCalculator-Linux.tar.gz MyCalculator-Linux/
+
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path MyCalculator-Windows
+          $exePath = Get-ChildItem -Path build -Filter MyCalculator.exe -Recurse | Select-Object -First 1
+          if (-not $exePath) { throw "Executable not found!" }
+          Copy-Item $exePath.FullName -Destination MyCalculator-Windows\
+          windeployqt MyCalculator-Windows\MyCalculator.exe
+          Compress-Archive -Path MyCalculator-Windows\* -DestinationPath MyCalculator-Windows.zip
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MyCalculator-Linux.tar.gz
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MyCalculator-Windows.zip
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            MyCalculator-Linux.tar.gz
+            MyCalculator-Windows.zip
+          generate_release_notes: true
+
+  cleanup:
+    name: Keep only latest 2 releases
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete older releases
+        uses: dev-drprasad/delete-older-releases@v0.3.3
+        with:
+          keep_latest: 2
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
