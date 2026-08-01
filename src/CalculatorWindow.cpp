@@ -1,83 +1,197 @@
 #include "CalculatorWindow.h"
+
+#include "ConversionEngine.h"
+#include "CurrencyManager.h"
+#include "MathEngine.h"
+#include "ProgrammerEngine.h"
+
 #include <QApplication>
 #include <QClipboard>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonValue>
 #include <QKeyEvent>
-#include <QNetworkRequest>
 #include <QScreen>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
-CalculatorWindow::CalculatorWindow(QWidget *parent) :
-    QMainWindow(parent), currentMathValue(0.0), pendingMathOp(""), waitingForNewOperand(true), isUpdatingBoxes(false), prevTempFromIdx(0),
-    prevTempToIdx(1), prevNumFromIdx(0), prevNumToIdx(3), prevCurrFromIdx(0), prevCurrToIdx(1), currentProgValue(0), pendingProgOp(""),
-    waitingForNewProgOperand(true), currentProgBase(10)
+CalculatorWindow::CalculatorWindow(QWidget* parent) :
+    QMainWindow(parent)
 {
+
+  mathEngine      = new MathEngine();
+  progEngine      = new ProgrammerEngine(this);
+  currencyManager = new CurrencyManager(this);
+
+  connect(
+    progEngine, &ProgrammerEngine::displayUpdated, this, &CalculatorWindow::onProgDisplayUpdated
+  );
+  connect(
+    currencyManager, &CurrencyManager::ratesUpdated, this, &CalculatorWindow::onCurrencyRatesUpdated
+  );
+  connect(
+    currencyManager, &CurrencyManager::errorOccurred, this, &CalculatorWindow::onCurrencyError
+  );
+
   setupUi();
 
-  exchangeRates["USD"] = 1.0;
-  exchangeRates["IDR"] = 17000.0;
-  exchangeRates["EUR"] = 0.92;
-  exchangeRates["GBP"] = 0.79;
-  exchangeRates["JPY"] = 150.0;
-
-  networkManager = new QNetworkAccessManager(this);
-  connect(networkManager, &QNetworkAccessManager::finished, this, &CalculatorWindow::onCurrencyNetworkReply);
-  onCurrencyFetchRates(); // fetch on startup
+  currencyManager->fetchRates();  // fetch on startup
 }
 
-CalculatorWindow::~CalculatorWindow() {}
+CalculatorWindow::~CalculatorWindow() { delete mathEngine; }
 
 void CalculatorWindow::setupUi()
 {
   setWindowFlags(Qt::FramelessWindowHint | Qt::WindowMinimizeButtonHint);
   setAttribute(Qt::WA_TranslucentBackground);
-  setWindowIcon(QIcon(":/Images/Icon.ico"));
+  setWindowIcon(QIcon(":/images/Icon.ico"));
   setWindowTitle("Calculator");
-  resize(400, 530);
+  resize(750, 500);
 
-  QFrame *mainFrame = new QFrame(this);
+  this->setStyleSheet(R"(
+    QWidget {
+      font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+      color: #e0e0e0;
+    }
+    QFrame#mainFrame {
+      background-color: #202020;
+      border-radius: 12px;
+      border: 1px solid #3d3d3d;
+    }
+    QListWidget {
+      background-color: transparent;
+      border: none;
+      outline: 0;
+    }
+    QListWidget::item {
+      padding: 10px;
+      margin: 2px 10px;
+      border-radius: 6px;
+    }
+    QListWidget::item:hover {
+      background-color: #333333;
+    }
+    QListWidget::item:selected {
+      background-color: #404040;
+      color: #ffffff;
+      font-weight: bold;
+    }
+    QLineEdit, QDoubleSpinBox, QComboBox {
+      background-color: #2b2b2b;
+      border: 1px solid #3d3d3d;
+      border-radius: 6px;
+      padding: 5px 10px;
+      color: #ffffff;
+    }
+    QLineEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {
+      border: 1px solid #0078D7;
+    }
+    QComboBox::drop-down {
+      border: none;
+    }
+    QComboBox QAbstractItemView {
+      background-color: #2b2b2b;
+      border: 1px solid #3d3d3d;
+      selection-background-color: #404040;
+      color: #ffffff;
+      outline: 0px;
+    }
+    QComboBox QAbstractItemView::viewport {
+      background-color: #2b2b2b;
+    }
+    QComboBox QAbstractItemView::item {
+      background-color: #2b2b2b;
+      color: #ffffff;
+      padding: 4px;
+    }
+    QComboBox QAbstractItemView::item:hover {
+      background-color: #404040;
+    }
+    QListView { 
+      background-color: #2b2b2b; 
+    }
+    QComboBoxPrivateContainer {
+      background-color: #2b2b2b;
+    }
+    QPushButton {
+      background-color: #333333;
+      border: 1px solid #404040;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 14px;
+    }
+    QPushButton:hover {
+      background-color: #3e3e3e;
+      border: 1px solid #505050;
+    }
+    QPushButton:pressed {
+      background-color: #252525;
+    }
+    QPushButton#mathDigitBtn {
+      background-color: #2b2b2b;
+    }
+    QPushButton#mathDigitBtn:hover {
+      background-color: #363636;
+    }
+    QPushButton#mathOpBtn {
+      background-color: #333333;
+    }
+    QPushButton#mathOpBtn:hover {
+      background-color: #404040;
+    }
+    QPushButton#mathEqBtn {
+      background-color: #0067b8;
+      color: white;
+    }
+    QPushButton#mathEqBtn:hover {
+      background-color: #005a9e;
+    }
+  )");
+
+  QFrame* mainFrame = new QFrame(this);
   mainFrame->setObjectName("mainFrame");
-  mainFrame->setStyleSheet("QFrame#mainFrame { "
-                           "background-color: #f0f0f0; "
-                           "border-radius: 15px; "
-                           "border: 1px solid #c0c0c0; "
-                           "}");
   setCentralWidget(mainFrame);
 
-  QVBoxLayout *mainLayout = new QVBoxLayout(mainFrame);
-  mainLayout->setContentsMargins(15, 10, 15, 15);
+  QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(this);
+  shadow->setBlurRadius(20);
+  shadow->setColor(QColor(0, 0, 0, 160));
+  shadow->setOffset(0, 4);
+  mainFrame->setGraphicsEffect(shadow);
 
-  // Custom Title Bar
-  QHBoxLayout *titleBarLayout = new QHBoxLayout();
-  titleBarLayout->setContentsMargins(0, 0, 0, 10);
-  QLabel *titleIcon = new QLabel();
-  titleIcon->setPixmap(QIcon(":/Images/Icon.ico").pixmap(18, 18));
-  QLabel *titleLabel = new QLabel("<b>Calculator</b>");
-  titleLabel->setStyleSheet("color: #444; font-size: 13px;");
+  QVBoxLayout* mainLayout = new QVBoxLayout(mainFrame);
+  mainLayout->setContentsMargins(10, 10, 10, 10);
+  mainLayout->setSpacing(0);
 
-  QPushButton *closeBtn = new QPushButton("✕");
-  closeBtn->setFixedSize(28, 28);
-  closeBtn->setFocusPolicy(Qt::NoFocus);
-  closeBtn->setStyleSheet("QPushButton { background-color: transparent; border: none; font-weight: "
-                          "bold; font-size: 14px; color: #888; border-radius: 14px; }"
-                          "QPushButton:hover { background-color: #ff4d4d; color: white; }");
-  connect(closeBtn, &QPushButton::clicked, this, &QWidget::close);
+  QHBoxLayout* titleBarLayout = new QHBoxLayout();
+  titleBarLayout->setContentsMargins(10, 5, 5, 10);
+  QLabel* titleIcon = new QLabel();
+  titleIcon->setPixmap(QIcon(":/images/Icon.ico").pixmap(18, 18));
+  QLabel* titleLabel = new QLabel("<b>Calculator</b>");
+  titleLabel->setStyleSheet("color: #b0b0b0; font-size: 13px;");
 
-  QPushButton *minBtn = new QPushButton("–");
-  minBtn->setFixedSize(28, 28);
+  QPushButton* minBtn = new QPushButton(QString::fromUtf8("–"));
+  minBtn->setFixedSize(30, 30);
   minBtn->setFocusPolicy(Qt::NoFocus);
-  minBtn->setStyleSheet("QPushButton { background-color: transparent; border: none; font-weight: "
-                        "bold; font-size: 14px; color: #888; border-radius: 14px; }"
-                        "QPushButton:hover { background-color: #dddddd; color: black; }");
+  minBtn->setStyleSheet(
+    "QPushButton { background-color: transparent; border: none; font-weight: "
+    "bold; font-size: 14px; color: #b0b0b0; border-radius: 15px; }"
+    "QPushButton:hover { background-color: #3d3d3d; color: white; }"
+  );
   connect(minBtn, &QPushButton::clicked, this, &QWidget::showMinimized);
 
+  QPushButton* closeBtn = new QPushButton(QString::fromUtf8("✕"));
+  closeBtn->setFixedSize(30, 30);
+  closeBtn->setFocusPolicy(Qt::NoFocus);
+  closeBtn->setStyleSheet(
+    "QPushButton { background-color: transparent; border: none; font-weight: "
+    "bold; font-size: 14px; color: #b0b0b0; border-radius: 15px; }"
+    "QPushButton:hover { background-color: #c42b1c; color: white; }"
+  );
+  connect(closeBtn, &QPushButton::clicked, this, &QWidget::close);
+
   titleBarLayout->addWidget(titleIcon);
+  titleBarLayout->addSpacing(5);
   titleBarLayout->addWidget(titleLabel);
   titleBarLayout->addStretch();
   titleBarLayout->addWidget(minBtn);
@@ -85,270 +199,372 @@ void CalculatorWindow::setupUi()
 
   mainLayout->addLayout(titleBarLayout);
 
-  tabWidget = new QTabWidget(mainFrame);
-  mainLayout->addWidget(tabWidget);
+  QHBoxLayout* bodyLayout = new QHBoxLayout();
+  bodyLayout->setContentsMargins(0, 0, 0, 0);
+  bodyLayout->setSpacing(10);
+  mainLayout->addLayout(bodyLayout);
+
+  sidebarList = new QListWidget(mainFrame);
+  sidebarList->setFixedWidth(210);
+  sidebarList->setFocusPolicy(Qt::NoFocus);
+  sidebarList->addItem(new QListWidgetItem(QString::fromUtf8("Calculator")));
+  sidebarList->addItem(new QListWidgetItem(QString::fromUtf8("Temperature")));
+  sidebarList->addItem(new QListWidgetItem(QString::fromUtf8("Number")));
+  sidebarList->addItem(new QListWidgetItem(QString::fromUtf8("Currency")));
+  sidebarList->addItem(new QListWidgetItem(QString::fromUtf8("Programmer")));
+  sidebarList->setCurrentRow(0);
+  bodyLayout->addWidget(sidebarList);
+
+  stackedWidget = new QStackedWidget(mainFrame);
+  bodyLayout->addWidget(stackedWidget, 1);
+
+  connect(
+    sidebarList, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex
+  );
 
   // --- Math Tab ---
-  QWidget *mathTab = new QWidget();
-  QVBoxLayout *mathLayout = new QVBoxLayout(mathTab);
+  QWidget*     mathTab    = new QWidget();
+  QVBoxLayout* mathLayout = new QVBoxLayout(mathTab);
+  mathLayout->setContentsMargins(10, 0, 10, 10);
 
   mathHistory = new QLabel("");
   mathHistory->setAlignment(Qt::AlignRight);
-  mathHistory->setStyleSheet("color: gray;");
+  mathHistory->setStyleSheet("color: #888888; font-size: 14px;");
   mathLayout->addWidget(mathHistory);
 
   mathDisplay = new QLineEdit("0");
   mathDisplay->setReadOnly(true);
   mathDisplay->setAlignment(Qt::AlignRight);
   mathDisplay->setFocusPolicy(Qt::NoFocus);
-  QFont font = mathDisplay->font();
-  font.setPointSize(24);
-  mathDisplay->setFont(font);
+  mathDisplay->setStyleSheet(
+    "background-color: transparent; border: none; font-size: 40px; "
+    "font-weight: bold; margin-bottom: 10px;"
+  );
   mathLayout->addWidget(mathDisplay);
 
-  QGridLayout *gridLayout = new QGridLayout();
-  QStringList buttons = { "7", "8", "9", "/", "4", "5", "6", "*", "1", "2", "3", "-", "0", ".", "C", "+" };
-  int pos = 0;
-  for (int i = 0; i < 4; ++i)
-  {
-    for (int j = 0; j < 4; ++j)
-    {
-      QPushButton *btn = new QPushButton(buttons[pos]);
+  QGridLayout* gridLayout = new QGridLayout();
+  gridLayout->setSpacing(8);
+  QStringList buttons = {"7", "8", "9", "/", "4", "5", "6", "*",
+                         "1", "2", "3", "-", "0", ".", "C", "+"};
+  int         pos     = 0;
+  QFont       mathBtnFont;
+  mathBtnFont.setPointSize(16);
+  mathBtnFont.setWeight(QFont::Medium);
+
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      QPushButton* btn = new QPushButton(buttons[pos]);
       btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-      btn->setFont(font);
+      btn->setFont(mathBtnFont);
       btn->setFocusPolicy(Qt::NoFocus);
+
+      if (QString("0123456789.").contains(buttons[pos])) {
+        btn->setObjectName("mathDigitBtn");
+      }
+      else {
+        btn->setObjectName("mathOpBtn");
+      }
+
       gridLayout->addWidget(btn, i, j);
 
-      if (buttons[pos] == "C")
-      {
+      if (buttons[pos] == "C") {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onMathClear);
       }
-      else
-      {
+      else {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onMathButtonClicked);
       }
       pos++;
     }
   }
-  QPushButton *backBtn = new QPushButton("⌫");
+  QPushButton* backBtn = new QPushButton(QString::fromUtf8("⌫"));
+  backBtn->setObjectName("mathOpBtn");
   backBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  backBtn->setFont(font);
+  backBtn->setFont(mathBtnFont);
   backBtn->setFocusPolicy(Qt::NoFocus);
   connect(backBtn, &QPushButton::clicked, this, &CalculatorWindow::onMathBackspace);
   gridLayout->addWidget(backBtn, 4, 0, 1, 2);
 
-  QPushButton *eqBtn = new QPushButton("=");
+  QPushButton* eqBtn = new QPushButton("=");
+  eqBtn->setObjectName("mathEqBtn");
   eqBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  eqBtn->setFont(font);
+  eqBtn->setFont(mathBtnFont);
   eqBtn->setFocusPolicy(Qt::NoFocus);
   connect(eqBtn, &QPushButton::clicked, this, &CalculatorWindow::onMathCalculate);
   gridLayout->addWidget(eqBtn, 4, 2, 1, 2);
 
   mathLayout->addLayout(gridLayout);
-  tabWidget->addTab(mathTab, "Calculator");
+  stackedWidget->addWidget(mathTab);
 
   // --- Temperature Tab ---
-  QWidget *tempTab = new QWidget();
-  QVBoxLayout *tempLayout = new QVBoxLayout(tempTab);
+  QWidget*     tempTab    = new QWidget();
+  QVBoxLayout* tempLayout = new QVBoxLayout(tempTab);
+  tempLayout->setContentsMargins(10, 20, 20, 20);
 
   tempInput = new QDoubleSpinBox();
   tempInput->setRange(-10000, 10000);
   tempInput->setDecimals(2);
   tempInput->setValue(0);
+  tempInput->setFixedHeight(35);
 
   tempFrom = new QComboBox();
-  tempFrom->addItems({ "Celsius", "Fahrenheit", "Kelvin" });
+  tempFrom->addItems({"Celsius", "Fahrenheit", "Kelvin"});
+  tempFrom->setFixedHeight(35);
 
   tempTo = new QComboBox();
-  tempTo->addItems({ "Celsius", "Fahrenheit", "Kelvin" });
+  tempTo->addItems({"Celsius", "Fahrenheit", "Kelvin"});
   tempTo->setCurrentIndex(1);
+  tempTo->setFixedHeight(35);
 
   tempResult = new QLabel("Result: 0.00 Fahrenheit");
   tempResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  tempResult->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
 
-  connect(tempInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CalculatorWindow::onTempConvert);
-  connect(tempFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onTempConvert);
-  connect(tempTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onTempConvert);
+  connect(
+    tempInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+    &CalculatorWindow::onTempConvert
+  );
+  connect(
+    tempFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onTempConvert
+  );
+  connect(
+    tempTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onTempConvert
+  );
 
   tempLayout->addWidget(new QLabel("Value:"));
   tempLayout->addWidget(tempInput);
+  tempLayout->addSpacing(10);
   tempLayout->addWidget(new QLabel("From:"));
   tempLayout->addWidget(tempFrom);
+  tempLayout->addSpacing(10);
   tempLayout->addWidget(new QLabel("To:"));
   tempLayout->addWidget(tempTo);
+  tempLayout->addSpacing(20);
 
-  QHBoxLayout *tempResLayout = new QHBoxLayout();
+  QHBoxLayout* tempResLayout = new QHBoxLayout();
   tempResLayout->addWidget(tempResult);
-  QPushButton *copyTempBtn = new QPushButton();
-  copyTempBtn->setIcon(QIcon(":/Images/CopyPaste.png"));
-  copyTempBtn->setFixedSize(30, 30);
-  connect(copyTempBtn, &QPushButton::clicked, this,
-          [this]() { QApplication::clipboard()->setText(tempResult->text().remove("Result: ")); });
+  QPushButton* copyTempBtn = new QPushButton("Copy");
+  copyTempBtn->setFixedSize(80, 35);
+  connect(copyTempBtn, &QPushButton::clicked, this, [this]() {
+    QApplication::clipboard()->setText(tempResult->text().remove("Result: "));
+  });
   tempResLayout->addWidget(copyTempBtn);
   tempResLayout->addStretch();
   tempLayout->addLayout(tempResLayout);
-
   tempLayout->addStretch();
-  tabWidget->addTab(tempTab, "Temperature");
+  stackedWidget->addWidget(tempTab);
 
   // --- Number Conversion Tab ---
-  QWidget *numTab = new QWidget();
-  QVBoxLayout *numLayout = new QVBoxLayout(numTab);
+  QWidget*     numTab    = new QWidget();
+  QVBoxLayout* numLayout = new QVBoxLayout(numTab);
+  numLayout->setContentsMargins(10, 20, 20, 20);
 
   numInput = new QLineEdit();
+  numInput->setFixedHeight(35);
 
   numFrom = new QComboBox();
-  numFrom->addItems({ "Decimal", "Binary", "Octal", "Hexadecimal", "Text" });
+  numFrom->addItems({"Decimal", "Binary", "Octal", "Hexadecimal", "Text"});
+  numFrom->setFixedHeight(35);
 
   numTo = new QComboBox();
-  numTo->addItems({ "Decimal", "Binary", "Octal", "Hexadecimal", "Text" });
+  numTo->addItems({"Decimal", "Binary", "Octal", "Hexadecimal", "Text"});
   numTo->setCurrentIndex(3);
+  numTo->setFixedHeight(35);
 
   numResult = new QLabel("Result: ");
   numResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  numResult->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
 
   connect(numInput, &QLineEdit::textChanged, this, &CalculatorWindow::onNumConvert);
-  connect(numFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onNumConvert);
-  connect(numTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onNumConvert);
+  connect(
+    numFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onNumConvert
+  );
+  connect(
+    numTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onNumConvert
+  );
 
   numLayout->addWidget(new QLabel("Value:"));
   numLayout->addWidget(numInput);
+  numLayout->addSpacing(10);
   numLayout->addWidget(new QLabel("From:"));
   numLayout->addWidget(numFrom);
+  numLayout->addSpacing(10);
   numLayout->addWidget(new QLabel("To:"));
   numLayout->addWidget(numTo);
+  numLayout->addSpacing(20);
 
-  QHBoxLayout *numResLayout = new QHBoxLayout();
+  QHBoxLayout* numResLayout = new QHBoxLayout();
   numResLayout->addWidget(numResult);
-  QPushButton *copyNumBtn = new QPushButton();
-  copyNumBtn->setIcon(QIcon(":/Images/CopyPaste.png"));
-  copyNumBtn->setFixedSize(30, 30);
-  connect(copyNumBtn, &QPushButton::clicked, this, [this]() { QApplication::clipboard()->setText(numResult->text().remove("Result: ")); });
+  QPushButton* copyNumBtn = new QPushButton("Copy");
+  copyNumBtn->setFixedSize(80, 35);
+  connect(copyNumBtn, &QPushButton::clicked, this, [this]() {
+    QApplication::clipboard()->setText(numResult->text().remove("Result: "));
+  });
   numResLayout->addWidget(copyNumBtn);
   numResLayout->addStretch();
   numLayout->addLayout(numResLayout);
-
   numLayout->addStretch();
-  tabWidget->addTab(numTab, "Number");
+  stackedWidget->addWidget(numTab);
 
   // --- Currency Tab ---
-  QWidget *currTab = new QWidget();
-  QVBoxLayout *currLayout = new QVBoxLayout(currTab);
+  QWidget*     currTab    = new QWidget();
+  QVBoxLayout* currLayout = new QVBoxLayout(currTab);
+  currLayout->setContentsMargins(10, 20, 20, 20);
 
   currencyInput = new QDoubleSpinBox();
   currencyInput->setRange(0, 1e9);
   currencyInput->setDecimals(2);
   currencyInput->setValue(1);
+  currencyInput->setFixedHeight(35);
 
   currencyFrom = new QComboBox();
-  currencyFrom->addItems(exchangeRates.keys());
+  currencyFrom->addItems(currencyManager->getAvailableCurrencies());
+  currencyFrom->setFixedHeight(35);
 
   currencyTo = new QComboBox();
-  currencyTo->addItems(exchangeRates.keys());
+  currencyTo->addItems(currencyManager->getAvailableCurrencies());
   currencyTo->setCurrentText("IDR");
+  currencyTo->setFixedHeight(35);
 
   currencyResult = new QLabel("Result: 17000.00 IDR");
   currencyResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  currencyStatus = new QLabel("Rates: Offline (Using Fallback 1 USD = 17000 IDR)");
+  currencyResult->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
 
-  QPushButton *fetchBtn = new QPushButton("Fetch Real-time Rates");
+  currencyStatus = new QLabel("Rates: Offline (Using Fallback 1 USD = 17000 IDR)");
+  currencyStatus->setStyleSheet("color: #aaaaaa; font-size: 11px;");
+
+  QPushButton* fetchBtn = new QPushButton("Fetch Real-time Rates");
   connect(fetchBtn, &QPushButton::clicked, this, &CalculatorWindow::onCurrencyFetchRates);
 
-  connect(currencyInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CalculatorWindow::onCurrencyConvert);
-  connect(currencyFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onCurrencyConvert);
-  connect(currencyTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onCurrencyConvert);
+  connect(
+    currencyInput, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+    &CalculatorWindow::onCurrencyConvert
+  );
+  connect(
+    currencyFrom, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onCurrencyConvert
+  );
+  connect(
+    currencyTo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onCurrencyConvert
+  );
 
   currLayout->addWidget(new QLabel("Amount:"));
   currLayout->addWidget(currencyInput);
+  currLayout->addSpacing(10);
   currLayout->addWidget(new QLabel("From:"));
   currLayout->addWidget(currencyFrom);
+  currLayout->addSpacing(10);
   currLayout->addWidget(new QLabel("To:"));
   currLayout->addWidget(currencyTo);
+  currLayout->addSpacing(20);
 
-  QHBoxLayout *currResLayout = new QHBoxLayout();
+  QHBoxLayout* currResLayout = new QHBoxLayout();
   currResLayout->addWidget(currencyResult);
-  QPushButton *copyCurrBtn = new QPushButton();
-  copyCurrBtn->setIcon(QIcon(":/Images/CopyPaste.png"));
-  copyCurrBtn->setFixedSize(30, 30);
-  connect(copyCurrBtn, &QPushButton::clicked, this,
-          [this]() { QApplication::clipboard()->setText(currencyResult->text().remove("Result: ")); });
+  QPushButton* copyCurrBtn = new QPushButton("Copy");
+  copyCurrBtn->setFixedSize(80, 35);
+  connect(copyCurrBtn, &QPushButton::clicked, this, [this]() {
+    QApplication::clipboard()->setText(currencyResult->text().remove("Result: "));
+  });
   currResLayout->addWidget(copyCurrBtn);
   currResLayout->addStretch();
   currLayout->addLayout(currResLayout);
+  currLayout->addSpacing(15);
 
   currLayout->addWidget(fetchBtn);
   currLayout->addWidget(currencyStatus);
   currLayout->addStretch();
-  tabWidget->addTab(currTab, "Currency");
+  stackedWidget->addWidget(currTab);
 
   // --- Programmer Tab ---
-  QWidget *progTab = new QWidget();
-  QVBoxLayout *progLayout = new QVBoxLayout(progTab);
+  QWidget*     progTab    = new QWidget();
+  QVBoxLayout* progLayout = new QVBoxLayout(progTab);
+  progLayout->setContentsMargins(10, 0, 10, 10);
 
   progHistory = new QLabel("");
   progHistory->setAlignment(Qt::AlignRight);
-  progHistory->setStyleSheet("color: gray;");
+  progHistory->setStyleSheet("color: #888888; font-size: 14px;");
   progLayout->addWidget(progHistory);
 
   progDisplay = new QLineEdit("0");
   progDisplay->setReadOnly(true);
   progDisplay->setAlignment(Qt::AlignRight);
   progDisplay->setFocusPolicy(Qt::NoFocus);
-  progDisplay->setFont(font);
+  progDisplay->setStyleSheet(
+    "background-color: transparent; border: none; font-size: 32px; "
+    "font-weight: bold; margin-bottom: 5px;"
+  );
   progLayout->addWidget(progDisplay);
 
   progBaseCombo = new QComboBox();
-  progBaseCombo->addItems({ "Hexadecimal", "Decimal", "Octal", "Binary" });
-  progBaseCombo->setCurrentIndex(1); // Decimal
-  connect(progBaseCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CalculatorWindow::onProgBaseChanged);
+  progBaseCombo->addItems({"Hexadecimal", "Decimal", "Octal", "Binary"});
+  progBaseCombo->setCurrentIndex(1);  // Decimal
+  progBaseCombo->setFixedHeight(35);
+  connect(
+    progBaseCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    &CalculatorWindow::onProgBaseChanged
+  );
   progLayout->addWidget(progBaseCombo);
+  progLayout->addSpacing(5);
 
-  QGridLayout *progGrid = new QGridLayout();
-  QStringList progBtnLabels = { "A", "B", "C", "D", "E", "F", "Clr", "⌫", "7", "8", "9", "/",
-                                "4", "5", "6", "*", "1", "2", "3",   "-", "0", "",  "=", "+" };
+  QGridLayout* progGrid = new QGridLayout();
+  progGrid->setSpacing(8);
+  QStringList progBtnLabels = {"A", "B", "C", "D", "E", "F", "Clr", QString::fromUtf8("⌫"),
+                               "7", "8", "9", "/", "4", "5", "6",   "*",
+                               "1", "2", "3", "-", "0", "",  "=",   "+"};
 
-  int pPos = 0;
-  for (int i = 0; i < 6; ++i)
-  {
-    for (int j = 0; j < 4; ++j)
-    {
-      if (progBtnLabels[pPos] == "")
-      {
+  int   pPos = 0;
+  QFont progBtnFont;
+  progBtnFont.setPointSize(14);
+  progBtnFont.setWeight(QFont::Medium);
+
+  for (int i = 0; i < 6; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      if (progBtnLabels[pPos] == "") {
         pPos++;
         continue;
       }
-      QPushButton *btn = new QPushButton(progBtnLabels[pPos]);
+      QPushButton* btn = new QPushButton(progBtnLabels[pPos]);
       btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-      btn->setFont(font);
+      btn->setFont(progBtnFont);
       btn->setFocusPolicy(Qt::NoFocus);
 
-      if (progBtnLabels[pPos] == "0")
-      {
+      if (QString("0123456789ABCDEF").contains(progBtnLabels[pPos])) {
+        btn->setObjectName("mathDigitBtn");
+      }
+      else if (progBtnLabels[pPos] == "=") {
+        btn->setObjectName("mathEqBtn");
+      }
+      else {
+        btn->setObjectName("mathOpBtn");
+      }
+
+      if (progBtnLabels[pPos] == "0") {
         progGrid->addWidget(btn, i, j, 1, 2);
         j++;
       }
-      else
-      {
+      else {
         progGrid->addWidget(btn, i, j);
       }
 
-      if (progBtnLabels[pPos] == "Clr")
-      {
+      if (progBtnLabels[pPos] == "Clr") {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgClear);
       }
-      else if (progBtnLabels[pPos] == "⌫")
-      {
+      else if (progBtnLabels[pPos] == QString::fromUtf8("⌫")) {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgBackspace);
       }
-      else if (progBtnLabels[pPos] == "=")
-      {
+      else if (progBtnLabels[pPos] == "=") {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgCalculate);
       }
-      else
-      {
+      else {
         connect(btn, &QPushButton::clicked, this, &CalculatorWindow::onProgButtonClicked);
-        if ((progBtnLabels[pPos] >= "0" && progBtnLabels[pPos] <= "9") || (progBtnLabels[pPos] >= "A" && progBtnLabels[pPos] <= "F"))
-        {
+        if (
+          (progBtnLabels[pPos] >= "0" && progBtnLabels[pPos] <= "9")
+          || (progBtnLabels[pPos] >= "A" && progBtnLabels[pPos] <= "F")
+        ) {
           progButtons.append(btn);
         }
       }
@@ -356,574 +572,241 @@ void CalculatorWindow::setupUi()
     }
   }
   progLayout->addLayout(progGrid);
-  tabWidget->addTab(progTab, "Programmer");
+  stackedWidget->addWidget(progTab);
 
   // mulai konversi
   onTempConvert();
   onCurrencyConvert();
+
+  // Fix transparent dropdowns on Linux
+  const auto combos = this->findChildren<QComboBox*>();
+  for (QComboBox* cb : combos) {
+    cb->setItemDelegate(new QStyledItemDelegate(cb));
+    if (cb->view()) {
+      cb->view()->window()->setWindowFlag(Qt::FramelessWindowHint);
+      cb->view()->window()->setAttribute(Qt::WA_TranslucentBackground, false);
+      cb->view()->setAutoFillBackground(true);
+      if (cb->view()->viewport()) {
+        cb->view()->viewport()->setAutoFillBackground(true);
+      }
+    }
+  }
+}
+
+void CalculatorWindow::updateMathUI()
+{
+  mathDisplay->setText(mathEngine->getDisplayValue());
+  mathHistory->setText(mathEngine->getHistoryValue());
 }
 
 void CalculatorWindow::onMathButtonClicked()
 {
-  QPushButton *btn = qobject_cast<QPushButton *>(sender());
+  QPushButton* btn = qobject_cast<QPushButton*>(sender());
   if (!btn)
     return;
-  processMathInput(btn->text());
-}
-
-void CalculatorWindow::processMathInput(const QString &text)
-{
-  if (QString("/ * - +").contains(text))
-  {
-    if (!waitingForNewOperand)
-    {
-      onMathCalculate();
-    }
-    pendingMathOp = text;
-    currentMathValue = mathDisplay->text().toDouble();
-    waitingForNewOperand = true;
-    mathDisplay->setText("0"); // clear
-
-    mathHistory->setText(QString::number(currentMathValue, 'g', 15) + " " + pendingMathOp);
-  }
-  else
-  {
-    if (waitingForNewOperand)
-    {
-      mathDisplay->clear();
-      waitingForNewOperand = false;
-    }
-    if (text == "." && mathDisplay->text().contains("."))
-    {
-      return;
-    }
-    mathDisplay->setText(mathDisplay->text() + text);
-  }
-}
-
-void CalculatorWindow::keyPressEvent(QKeyEvent *event)
-{
-  int tabIdx = tabWidget->currentIndex();
-  if (tabIdx != 0 && tabIdx != 4)
-  {
-    QMainWindow::keyPressEvent(event);
-    return;
-  }
-
-  QString text = event->text();
-  int key = event->key();
-
-  if (key == Qt::Key_Enter || key == Qt::Key_Return || key == Qt::Key_Equal)
-  {
-    if (tabIdx == 0)
-      onMathCalculate();
-    else
-      onProgCalculate();
-  }
-  else if (key == Qt::Key_Escape)
-  {
-    if (tabIdx == 0)
-      onMathClear();
-    else
-      onProgClear();
-  }
-  else if (key == Qt::Key_Backspace || key == Qt::Key_Delete || text == "\b" || text == "\x7F")
-  {
-    if (tabIdx == 0)
-      onMathBackspace();
-    else
-      onProgBackspace();
-  }
-  else if (!text.isEmpty())
-  {
-    if (tabIdx == 0 && QString("0123456789.+-*/").contains(text))
-    {
-      processMathInput(text);
-    }
-    else if (tabIdx == 4)
-    {
-      text = text.toUpper();
-      bool valid = false;
-      if (QString("+-*/").contains(text))
-      {
-        valid = true;
-      }
-      else if (currentProgBase == 16 && QString("0123456789ABCDEF").contains(text))
-      {
-        valid = true;
-      }
-      else if (currentProgBase == 10 && QString("0123456789").contains(text))
-      {
-        valid = true;
-      }
-      else if (currentProgBase == 8 && QString("01234567").contains(text))
-      {
-        valid = true;
-      }
-      else if (currentProgBase == 2 && QString("01").contains(text))
-      {
-        valid = true;
-      }
-      if (valid)
-      {
-        processProgInput(text);
-      }
-      else
-      {
-        QMainWindow::keyPressEvent(event);
-      }
-    }
-    else
-    {
-      QMainWindow::keyPressEvent(event);
-    }
-  }
-  else
-  {
-    QMainWindow::keyPressEvent(event);
-  }
-}
-
-void CalculatorWindow::mousePressEvent(QMouseEvent *event)
-{
-  if (event->button() == Qt::LeftButton)
-  {
-    dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
-    event->accept();
-  }
-}
-
-void CalculatorWindow::mouseMoveEvent(QMouseEvent *event)
-{
-  if (event->buttons() & Qt::LeftButton)
-  {
-    move(event->globalPosition().toPoint() - dragPosition);
-    event->accept();
-  }
+  mathEngine->processInput(btn->text());
+  updateMathUI();
 }
 
 void CalculatorWindow::onMathCalculate()
 {
-  if (pendingMathOp.isEmpty())
-    return;
-  double operand = mathDisplay->text().toDouble();
-  double result = 0.0;
-  if (pendingMathOp == "+")
-    result = currentMathValue + operand;
-  else if (pendingMathOp == "-")
-    result = currentMathValue - operand;
-  else if (pendingMathOp == "*")
-    result = currentMathValue * operand;
-  else if (pendingMathOp == "/")
-  {
-    if (operand == 0.0)
-    {
-      mathDisplay->setText("Error");
-      pendingMathOp = "";
-      waitingForNewOperand = true;
-      return;
-    }
-    result = currentMathValue / operand;
-  }
-  // 15 digit angka batas toleransi sebelum akhirnya mengeluarkan "e".
-  mathDisplay->setText(QString::number(result, 'g', 15));
-  mathHistory->setText("");
-  pendingMathOp = "";
-  waitingForNewOperand = true;
-  currentMathValue = result;
+  mathEngine->calculate();
+  updateMathUI();
 }
 
 void CalculatorWindow::onMathClear()
 {
-  mathDisplay->setText("0");
-  mathHistory->setText("");
-  pendingMathOp = "";
-  currentMathValue = 0.0;
-  waitingForNewOperand = true;
+  mathEngine->clear();
+  updateMathUI();
 }
 
 void CalculatorWindow::onMathBackspace()
 {
-  if (!waitingForNewOperand)
-  {
-    QString currentText = mathDisplay->text();
-    if (currentText.length() > 0)
-    {
-      currentText.chop(1);
-    }
-    if (currentText.isEmpty() || currentText == "-")
-    {
-      currentText = "0";
-      waitingForNewOperand = true;
-    }
-    mathDisplay->setText(currentText);
-  }
+  mathEngine->backspace();
+  updateMathUI();
 }
 
 void CalculatorWindow::onTempConvert()
 {
-  if (isUpdatingBoxes)
-    return;
-
-  if (tempFrom->currentIndex() == tempTo->currentIndex())
-  {
-    isUpdatingBoxes = true;
-    if (tempFrom->currentIndex() != prevTempFromIdx)
-    {
-      tempTo->setCurrentIndex(prevTempFromIdx);
-    }
-    else if (tempTo->currentIndex() != prevTempToIdx)
-    {
-      tempFrom->setCurrentIndex(prevTempToIdx);
-    }
-    isUpdatingBoxes = false;
-  }
-  prevTempFromIdx = tempFrom->currentIndex();
-  prevTempToIdx = tempTo->currentIndex();
-
-  double val = tempInput->value();
-  QString from = tempFrom->currentText();
-  QString to = tempTo->currentText();
-
-  // ubah ke celsius dulu
-  double c = val;
-  if (from == "Fahrenheit")
-    c = (val - 32.0) * 5.0 / 9.0;
-  else if (from == "Kelvin")
-    c = val - 273.15;
-
-  // ubah celsius ke target
-  double result = c;
-  if (to == "Fahrenheit")
-    result = c * 9.0 / 5.0 + 32.0;
-  else if (to == "Kelvin")
-    result = c + 273.15;
-
-  tempResult->setText("Result: " + QString::number(result, 'f', 2) + " " + to);
-}
-
-void CalculatorWindow::onCurrencyConvert()
-{
-  if (isUpdatingBoxes)
-    return;
-
-  if (currencyFrom->currentIndex() == currencyTo->currentIndex())
-  {
-    isUpdatingBoxes = true;
-    if (currencyFrom->currentIndex() != prevCurrFromIdx)
-    {
-      currencyTo->setCurrentIndex(prevCurrFromIdx);
-    }
-    else if (currencyTo->currentIndex() != prevCurrToIdx)
-    {
-      currencyFrom->setCurrentIndex(prevCurrToIdx);
-    }
-    isUpdatingBoxes = false;
-  }
-  prevCurrFromIdx = currencyFrom->currentIndex();
-  prevCurrToIdx = currencyTo->currentIndex();
-
-  double val = currencyInput->value();
-  QString from = currencyFrom->currentText();
-  QString to = currencyTo->currentText();
-
-  double result = val;
-  if (exchangeRates.contains(from) && exchangeRates.contains(to))
-  {
-    result = (val / exchangeRates[from]) * exchangeRates[to];
-  }
-
-  currencyResult->setText("Result: " + QString::number(result, 'f', 2) + " " + to);
+  tempResult->setText(
+    ConversionEngine::convertTemperature(
+      tempInput->value(), tempFrom->currentIndex(), tempTo->currentIndex()
+    )
+  );
 }
 
 void CalculatorWindow::onNumConvert()
 {
-  if (isUpdatingBoxes)
-    return;
+  numResult->setText(
+    ConversionEngine::convertNumber(
+      numInput->text(), numFrom->currentIndex(), numTo->currentIndex()
+    )
+  );
+}
 
-  if (numFrom->currentIndex() == numTo->currentIndex())
-  {
-    isUpdatingBoxes = true;
-    if (numFrom->currentIndex() != prevNumFromIdx)
-    {
-      numTo->setCurrentIndex(prevNumFromIdx);
-    }
-    else if (numTo->currentIndex() != prevNumToIdx)
-    {
-      numFrom->setCurrentIndex(prevNumToIdx);
-    }
-    isUpdatingBoxes = false;
-  }
-  prevNumFromIdx = numFrom->currentIndex();
-  prevNumToIdx = numTo->currentIndex();
-
-  QString valStr = numInput->text();
-  if (valStr.isEmpty())
-  {
-    numResult->setText("Result: ");
-    return;
-  }
-
-  QString from = numFrom->currentText();
-  QString to = numTo->currentText();
-
-  qulonglong num = 0;
-  bool ok = true;
-
-  if (from == "Text")
-  {
-    QByteArray bytes = valStr.toUtf8();
-    for (int i = 0; i < qMin(bytes.size(), 8); ++i)
-    {
-      num = (num << 8) | (quint8)bytes[i];
-    }
-  }
-  else
-  {
-    if (from == "Decimal")
-      num = valStr.toULongLong(&ok, 10);
-    else if (from == "Binary")
-      num = valStr.toULongLong(&ok, 2);
-    else if (from == "Octal")
-      num = valStr.toULongLong(&ok, 8);
-    else if (from == "Hexadecimal")
-      num = valStr.toULongLong(&ok, 16);
-  }
-
-  if (!ok)
-  {
-    numResult->setText("Result: Invalid Input");
-    return;
-  }
-
-  QString resStr;
-  if (to == "Text")
-  {
-    QByteArray bytes;
-    qulonglong temp = num;
-    while (temp > 0)
-    {
-      bytes.prepend((char)(temp & 0xFF));
-      temp >>= 8;
-    }
-    resStr = QString::fromUtf8(bytes);
-  }
-  else
-  {
-    if (to == "Decimal")
-      resStr = QString::number(num, 10);
-    else if (to == "Binary")
-      resStr = QString::number(num, 2);
-    else if (to == "Octal")
-      resStr = QString::number(num, 8);
-    else if (to == "Hexadecimal")
-      resStr = QString::number(num, 16).toUpper();
-  }
-
-  numResult->setText("Result: " + resStr);
+void CalculatorWindow::onCurrencyConvert()
+{
+  currencyResult->setText(currencyManager->convert(
+    currencyInput->value(), currencyFrom->currentText(), currencyTo->currentText()
+  ));
 }
 
 void CalculatorWindow::onCurrencyFetchRates()
 {
   currencyStatus->setText("Fetching rates...");
-  networkManager->get(QNetworkRequest(QUrl("https://api.exchangerate-api.com/v4/latest/USD")));
+  currencyManager->fetchRates();
 }
 
-void CalculatorWindow::onCurrencyNetworkReply(QNetworkReply *reply)
+void CalculatorWindow::onCurrencyRatesUpdated()
 {
-  if (reply->error() == QNetworkReply::NoError)
-  {
-    QByteArray response = reply->readAll();
-    QJsonDocument json = QJsonDocument::fromJson(response);
-    QJsonObject obj = json.object();
-    if (obj.contains("rates"))
-    {
-      QJsonObject rates = obj["rates"].toObject();
+  currencyStatus->setText(currencyManager->getStatusString());
 
-      QString currentFrom = currencyFrom->currentText();
-      QString currentTo = currencyTo->currentText();
+  // Refresh dropdowns if new currencies arrived
+  QString currFrom = currencyFrom->currentText();
+  QString currTo   = currencyTo->currentText();
 
-      currencyFrom->blockSignals(true);
-      currencyTo->blockSignals(true);
+  currencyFrom->blockSignals(true);
+  currencyTo->blockSignals(true);
 
-      currencyFrom->clear();
-      currencyTo->clear();
+  currencyFrom->clear();
+  currencyTo->clear();
+  currencyFrom->addItems(currencyManager->getAvailableCurrencies());
+  currencyTo->addItems(currencyManager->getAvailableCurrencies());
 
-      QStringList keys = rates.keys();
-      currencyFrom->addItems(keys);
-      currencyTo->addItems(keys);
+  currencyFrom->setCurrentText(currFrom);
+  currencyTo->setCurrentText(currTo);
 
-      exchangeRates.clear();
-      for (const QString &key : keys)
-      {
-        exchangeRates[key] = rates[key].toDouble();
-      }
+  currencyFrom->blockSignals(false);
+  currencyTo->blockSignals(false);
 
-      int fromIdx = currencyFrom->findText(currentFrom);
-      if (fromIdx >= 0)
-        currencyFrom->setCurrentIndex(fromIdx);
-      int toIdx = currencyTo->findText(currentTo);
-      if (toIdx >= 0)
-        currencyTo->setCurrentIndex(toIdx);
+  onCurrencyConvert();
+}
 
-      currencyFrom->blockSignals(false);
-      currencyTo->blockSignals(false);
-
-      currencyStatus->setText("Rates: Online, Real-time rates fetched");
-      onCurrencyConvert(); // trigger update
-    }
-  }
-  else
-  {
-    currencyStatus->setText("Rates: Failed to fetch. Using fallback.");
-  }
-  reply->deleteLater();
+void CalculatorWindow::onCurrencyError(const QString& msg)
+{
+  currencyStatus->setText(currencyManager->getStatusString() + " (" + msg + ")");
 }
 
 void CalculatorWindow::onProgButtonClicked()
 {
-  QPushButton *btn = qobject_cast<QPushButton *>(sender());
+  QPushButton* btn = qobject_cast<QPushButton*>(sender());
   if (!btn)
     return;
-  processProgInput(btn->text());
+  progEngine->processInput(btn->text());
 }
 
-void CalculatorWindow::processProgInput(const QString &text)
+void CalculatorWindow::onProgCalculate() { progEngine->calculate(); }
+
+void CalculatorWindow::onProgClear() { progEngine->clear(); }
+
+void CalculatorWindow::onProgBackspace() { progEngine->backspace(); }
+
+void CalculatorWindow::onProgBaseChanged(int index) { progEngine->changeBase(index); }
+
+void CalculatorWindow::onProgDisplayUpdated()
 {
-  if (QString("/ * - +").contains(text))
-  {
-    if (!waitingForNewProgOperand)
-    {
-      onProgCalculate();
-    }
-    pendingProgOp = text;
+  progDisplay->setText(progEngine->getDisplayValue());
+  progHistory->setText(progEngine->getHistoryValue());
 
-    currentProgValue = progDisplay->text().toLongLong(nullptr, currentProgBase);
-
-    waitingForNewProgOperand = true;
-    progDisplay->setText("0");
-    progHistory->setText(QString::number(currentProgValue, currentProgBase).toUpper() + " " + pendingProgOp);
-  }
-  else
-  {
-    if (waitingForNewProgOperand)
-    {
-      progDisplay->clear();
-      waitingForNewProgOperand = false;
-    }
-    progDisplay->setText(progDisplay->text() + text);
-  }
-}
-
-void CalculatorWindow::onProgCalculate()
-{
-  if (pendingProgOp.isEmpty())
-    return;
-
-  qint64 operand = progDisplay->text().toLongLong(nullptr, currentProgBase);
-  qint64 result = 0;
-
-  if (pendingProgOp == "+")
-    result = currentProgValue + operand;
-  else if (pendingProgOp == "-")
-    result = currentProgValue - operand;
-  else if (pendingProgOp == "*")
-    result = currentProgValue * operand;
-  else if (pendingProgOp == "/")
-  {
-    if (operand == 0)
-    {
-      progDisplay->setText("Error");
-      pendingProgOp = "";
-      waitingForNewProgOperand = true;
-      return;
-    }
-    result = currentProgValue / operand;
-  }
-
-  progDisplay->setText(QString::number(result, currentProgBase).toUpper());
-  progHistory->setText("");
-  pendingProgOp = "";
-  waitingForNewProgOperand = true;
-  currentProgValue = result;
-}
-
-void CalculatorWindow::onProgClear()
-{
-  progDisplay->setText("0");
-  progHistory->setText("");
-  pendingProgOp = "";
-  currentProgValue = 0;
-  waitingForNewProgOperand = true;
-}
-
-void CalculatorWindow::onProgBackspace()
-{
-  if (!waitingForNewProgOperand)
-  {
-    QString currentText = progDisplay->text();
-    if (currentText.length() > 0)
-    {
-      currentText.chop(1);
-    }
-    if (currentText.isEmpty() || currentText == "-")
-    {
-      currentText = "0";
-      waitingForNewProgOperand = true;
-    }
-    progDisplay->setText(currentText);
-  }
-}
-
-void CalculatorWindow::onProgBaseChanged(int index)
-{
-  int newBase = 10;
-  if (index == 0)
-    newBase = 16;
-  else if (index == 2)
-    newBase = 8;
-  else if (index == 3)
-    newBase = 2;
-
-  QString currentText = progDisplay->text();
-  if (currentText != "Error")
-  {
-    qint64 val = currentText.toLongLong(nullptr, currentProgBase);
-    progDisplay->setText(QString::number(val, newBase).toUpper());
-  }
-
-  if (!progHistory->text().isEmpty())
-  {
-    QString histText = progHistory->text();
-    // Rebuild history string
-    progHistory->setText(QString::number(currentProgValue, newBase).toUpper() + " " + pendingProgOp);
-  }
-
-  currentProgBase = newBase;
-
-  for (QPushButton *btn : progButtons)
-  {
-    QString t = btn->text();
-    bool enable = false;
+  int index = progBaseCombo->currentIndex();
+  for (QPushButton* btn : progButtons) {
+    QString t      = btn->text();
+    bool    enable = false;
     if (index == 0)
-    { // Hex
-      enable = true;
-    }
-    else if (index == 1)
-    { // Dec
+      enable = true;        // Hex
+    else if (index == 1) {  // Dec
       if (t >= "0" && t <= "9")
         enable = true;
     }
-    else if (index == 2)
-    { // Oct
+    else if (index == 2) {  // Oct
       if (t >= "0" && t <= "7")
         enable = true;
     }
-    else if (index == 3)
-    { // Bin
+    else if (index == 3) {  // Bin
       if (t == "0" || t == "1")
         enable = true;
     }
     btn->setEnabled(enable);
+  }
+}
+
+void CalculatorWindow::keyPressEvent(QKeyEvent* event)
+{
+  if (!sidebarList)
+    return;
+  int tabIdx = sidebarList->currentRow();
+  if (tabIdx != 0 && tabIdx != 4) {
+    QMainWindow::keyPressEvent(event);
+    return;
+  }
+
+  QString text = event->text();
+  int     key  = event->key();
+
+  if (key == Qt::Key_Enter || key == Qt::Key_Return || key == Qt::Key_Equal) {
+    if (tabIdx == 0)
+      onMathCalculate();
+    else
+      onProgCalculate();
+  }
+  else if (key == Qt::Key_Escape) {
+    if (tabIdx == 0)
+      onMathClear();
+    else
+      onProgClear();
+  }
+  else if (key == Qt::Key_Backspace || key == Qt::Key_Delete || text == "\b" || text == "\x7F") {
+    if (tabIdx == 0)
+      onMathBackspace();
+    else
+      onProgBackspace();
+  }
+  else if (!text.isEmpty()) {
+    if (tabIdx == 0 && QString("0123456789.+-*/").contains(text)) {
+      mathEngine->processInput(text);
+      updateMathUI();
+    }
+    else if (tabIdx == 4) {
+      text       = text.toUpper();
+      bool valid = false;
+      int  base  = progEngine->getCurrentBase();
+      if (QString("+-*/").contains(text))
+        valid = true;
+      else if (base == 16 && QString("0123456789ABCDEF").contains(text))
+        valid = true;
+      else if (base == 10 && QString("0123456789").contains(text))
+        valid = true;
+      else if (base == 8 && QString("01234567").contains(text))
+        valid = true;
+      else if (base == 2 && QString("01").contains(text))
+        valid = true;
+
+      if (valid)
+        progEngine->processInput(text);
+      else
+        QMainWindow::keyPressEvent(event);
+    }
+    else {
+      QMainWindow::keyPressEvent(event);
+    }
+  }
+  else {
+    QMainWindow::keyPressEvent(event);
+  }
+}
+
+void CalculatorWindow::mousePressEvent(QMouseEvent* event)
+{
+  if (event->button() == Qt::LeftButton) {
+    dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
+    event->accept();
+  }
+}
+
+void CalculatorWindow::mouseMoveEvent(QMouseEvent* event)
+{
+  if (event->buttons() & Qt::LeftButton) {
+    move(event->globalPosition().toPoint() - dragPosition);
+    event->accept();
   }
 }

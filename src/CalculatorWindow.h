@@ -3,107 +3,85 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QGraphicsDropShadowEffect>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMainWindow>
-#include <QMap>
 #include <QMouseEvent>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QPoint>
 #include <QPushButton>
-#include <QTabWidget>
+#include <QStackedWidget>
 
-class CalculatorWindow : public QMainWindow
+class MathEngine;
+class ProgrammerEngine;
+class CurrencyManager;
+
+class CalculatorWindow: public QMainWindow
 {
   Q_OBJECT
 
 protected:
-  void keyPressEvent(QKeyEvent *event) override;
-  void mousePressEvent(QMouseEvent *event) override;
-  void mouseMoveEvent(QMouseEvent *event) override;
+  void keyPressEvent(QKeyEvent* event) override;
+  void mousePressEvent(QMouseEvent* event) override;
+  void mouseMoveEvent(QMouseEvent* event) override;
 
 public:
-  explicit CalculatorWindow(QWidget *parent = nullptr);
+  explicit CalculatorWindow(QWidget* parent = nullptr);
   ~CalculatorWindow();
 
 private slots:
-  // Math slots
   void onMathButtonClicked();
   void onMathCalculate();
   void onMathClear();
-
-  // Temperature slots
-  void onTempConvert();
-
-  // Number Conversion slots
-  void onNumConvert();
   void onMathBackspace();
 
-  // Currency slots
+  void onTempConvert();
+  void onNumConvert();
+
   void onCurrencyConvert();
   void onCurrencyFetchRates();
-  void onCurrencyNetworkReply(QNetworkReply *reply);
+  void onCurrencyRatesUpdated();
+  void onCurrencyError(const QString& msg);
 
-  // Programmer slots
   void onProgButtonClicked();
   void onProgCalculate();
   void onProgClear();
   void onProgBackspace();
   void onProgBaseChanged(int index);
+  void onProgDisplayUpdated();
 
 private:
   void setupUi();
-  void processMathInput(const QString &text);
-  void processProgInput(const QString &text);
+  void updateMathUI();
 
-  QPoint dragPosition;
-  QTabWidget *tabWidget;
+  QPoint          dragPosition;
+  QListWidget*    sidebarList;
+  QStackedWidget* stackedWidget;
 
-  // Math UI
-  QLabel *mathHistory;
-  QLineEdit *mathDisplay;
-  double currentMathValue;
-  QString pendingMathOp;
-  bool waitingForNewOperand;
-  bool isUpdatingBoxes;
-  int prevTempFromIdx;
-  int prevTempToIdx;
-  int prevNumFromIdx;
-  int prevNumToIdx;
-  int prevCurrFromIdx;
-  int prevCurrToIdx;
+  MathEngine*       mathEngine;
+  ProgrammerEngine* progEngine;
+  CurrencyManager*  currencyManager;
 
-  // Temperature UI
-  QDoubleSpinBox *tempInput;
-  QComboBox *tempFrom;
-  QComboBox *tempTo;
-  QLabel *tempResult;
-
-  // Number Conversion UI
-  QLineEdit *numInput;
-  QComboBox *numFrom;
-  QComboBox *numTo;
-  QLabel *numResult;
-
-  // Currency UI
-  QDoubleSpinBox *currencyInput;
-  QComboBox *currencyFrom;
-  QComboBox *currencyTo;
-  QLabel *currencyResult;
-  QLabel *currencyStatus;
-  QNetworkAccessManager *networkManager;
-  QMap<QString, double> exchangeRates; // Maps currency code to its rate against USD
-
-  // Programmer UI
-  QLabel *progHistory;
-  QLineEdit *progDisplay;
-  QComboBox *progBaseCombo;
-  qint64 currentProgValue;
-  QString pendingProgOp;
-  bool waitingForNewProgOperand;
-  int currentProgBase;
-  QList<QPushButton *> progButtons;
+  QLabel*             mathHistory;
+  QLineEdit*          mathDisplay;
+  QDoubleSpinBox*     tempInput;
+  QComboBox*          tempFrom;
+  QComboBox*          tempTo;
+  QLabel*             tempResult;
+  QLineEdit*          numInput;
+  QComboBox*          numFrom;
+  QComboBox*          numTo;
+  QLabel*             numResult;
+  QDoubleSpinBox*     currencyInput;
+  QComboBox*          currencyFrom;
+  QComboBox*          currencyTo;
+  QLabel*             currencyResult;
+  QLabel*             currencyStatus;
+  QLabel*             progHistory;
+  QLineEdit*          progDisplay;
+  QComboBox*          progBaseCombo;
+  QList<QPushButton*> progButtons;
 };
 
-#endif // CALCULATORWINDOW_H
+#endif  // CALCULATORWINDOW_H

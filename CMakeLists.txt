@@ -21,15 +21,24 @@ set(SOURCES
     src/main.cpp
     src/CalculatorWindow.cpp
     src/CalculatorWindow.h
+    src/MathEngine.cpp
+    src/MathEngine.h
+    src/ProgrammerEngine.cpp
+    src/ProgrammerEngine.h
+    src/ConversionEngine.cpp
+    src/ConversionEngine.h
+    src/CurrencyManager.cpp
+    src/CurrencyManager.h
 )
 
 # Resources
-set(RESOURCES resources.qrc)
+set(RESOURCES resources/resources.qrc)
 
 # For Windows icon
 if(WIN32)
     # Using CMake's ability to compile resources on Windows
-    add_executable(MyCalculator WIN32 ${SOURCES} ${RESOURCES})
+    set(WINDOWS_RC resources/appicon.rc)
+    add_executable(MyCalculator WIN32 ${SOURCES} ${RESOURCES} ${WINDOWS_RC})
 else()
     add_executable(MyCalculator ${SOURCES} ${RESOURCES})
 endif()
