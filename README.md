@@ -34,7 +34,7 @@ This project uses CMake as its build system. The output binary will be cleanly s
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/ItsMe-RiiK/MyCalculator.git
+   git clone https://github.com/RiiK26/MyCalculator.git
    cd MyCalculator
    ```
 2. Create a build directory and compile:
